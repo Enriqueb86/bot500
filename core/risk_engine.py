@@ -1,29 +1,45 @@
+"""Calculos de riesgo deterministas y reutilizables."""
+
+import math
+
+
 class RiskEngine:
 
   @staticmethod
   def calculate_position_size(
-      capital: float, risk_pct: float, entry_price: float, atr: float
-  ) -> dict:
-    """Calcula el tamaño de la posición y los niveles de Stop-Loss / Take-Profit
+      capital: float,
+      risk_pct: float,
+      entry_price: float,
+      atr: float,
+      stop_atr_multiple: float = 2.0,
+      reward_risk_multiple: float = 2.0,
+      max_notional: float | None = None,
+      risk_multiplier: float = 1.0,
+  ) -> dict[str, float]:
+    values = (capital, risk_pct, entry_price, atr, stop_atr_multiple)
+    if not all(math.isfinite(float(value)) and float(value) > 0 for value in values):
+      raise ValueError("Capital, riesgo, precio, ATR y multiplicador deben ser positivos.")
 
-    utilizando el indicador ATR (Average True Range) para gestión de riesgo dinámica.
-    """
-    # Definimos el Stop Loss a una distancia de 2 veces el ATR
-    stop_loss_distance = atr * 2.0
-    stop_loss_price = entry_price - stop_loss_distance
-    take_profit_price = entry_price + (
-        stop_loss_distance * 2.0
-    )  # Ratio riesgo/beneficio 1:2
-
-    # Dinero arriesgado en esta operación
-    risk_amount = capital * risk_pct
-
-    # Cantidad de criptomoneda a comprar
+    risk_multiplier = min(max(float(risk_multiplier), 0.0), 1.0)
+    stop_loss_distance = float(atr) * float(stop_atr_multiple)
+    risk_amount = float(capital) * float(risk_pct) * risk_multiplier
     position_size = risk_amount / stop_loss_distance
 
+    if max_notional is not None:
+      if max_notional <= 0:
+        position_size = 0.0
+      else:
+        position_size = min(position_size, float(max_notional) / float(entry_price))
+
+    stop_loss_price = max(float(entry_price) - stop_loss_distance, 0.0)
+    take_profit_price = float(entry_price) + (
+        stop_loss_distance * float(reward_risk_multiple)
+    )
+
     return {
-        'position_size': round(position_size, 6),
-        'stop_loss': round(stop_loss_price, 2),
-        'take_profit': round(take_profit_price, 2),
-        'risk_amount': round(risk_amount, 2),
+        "position_size": round(position_size, 8),
+        "stop_loss": round(stop_loss_price, 8),
+        "take_profit": round(take_profit_price, 8),
+        "risk_amount": round(risk_amount, 8),
+        "stop_distance": round(stop_loss_distance, 8),
     }

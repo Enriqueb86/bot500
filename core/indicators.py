@@ -1,3 +1,5 @@
+"""Indicadores tecnicos sin dependencias de pandas-ta."""
+
 import numpy as np
 import pandas as pd
 
@@ -6,39 +8,40 @@ class TechnicalIndicators:
 
   @staticmethod
   def calculate_indicators(df: pd.DataFrame) -> pd.DataFrame:
-    """Calcula indicadores técnicos clave usando pandas/numpy de forma nativa
+    required = {"open", "high", "low", "close", "volume"}
+    if df.empty or not required.issubset(df.columns):
+      return pd.DataFrame()
 
-    para evitar problemas de compatibilidad con numba.
-    """
-    if df.empty or len(df) < 30:
-      return df
+    result = df.copy()
+    result["sma_50"] = result["close"].rolling(window=50).mean()
+    result["sma_200"] = result["close"].rolling(window=200).mean()
+    result["ema_20"] = result["close"].ewm(span=20, adjust=False).mean()
 
-    # 1. Medias Móviles Simples (SMA) y Exponenciales (EMA)
-    df['sma_50'] = df['close'].rolling(window=50).mean()
-    df['sma_200'] = df['close'].rolling(window=200).mean()
-    df['ema_20'] = df['close'].ewm(span=20, adjust=False).mean()
+    delta = result["close"].diff()
+    gain = delta.clip(lower=0)
+    loss = -delta.clip(upper=0)
+    average_gain = gain.ewm(alpha=1 / 14, min_periods=14, adjust=False).mean()
+    average_loss = loss.ewm(alpha=1 / 14, min_periods=14, adjust=False).mean()
+    rs = average_gain / average_loss.replace(0, np.nan)
+    result["rsi_14"] = (100 - (100 / (1 + rs))).fillna(100.0)
 
-    # 2. Índice de Fuerza Relativa (RSI de 14 periodos)
-    delta = df['close'].diff()
-    gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
-    loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
-    rs = gain / loss
-    df['rsi_14'] = 100 - (100 / (1 + rs))
+    exp12 = result["close"].ewm(span=12, adjust=False).mean()
+    exp26 = result["close"].ewm(span=26, adjust=False).mean()
+    result["macd"] = exp12 - exp26
+    result["macd_signal"] = result["macd"].ewm(span=9, adjust=False).mean()
+    result["macd_hist"] = result["macd"] - result["macd_signal"]
 
-    # 3. MACD (Moving Average Convergence Divergence: 12, 26, 9)
-    exp12 = df['close'].ewm(span=12, adjust=False).mean()
-    exp26 = df['close'].ewm(span=26, adjust=False).mean()
-    df['MACD_12_26_9'] = exp12 - exp26
-    df['MACDs_12_26_9'] = df['MACD_12_26_9'].ewm(span=9, adjust=False).mean()
-    df['MACDh_12_26_9'] = df['MACD_12_26_9'] - df['MACDs_12_26_9']
+    high_low = result["high"] - result["low"]
+    high_close = (result["high"] - result["close"].shift()).abs()
+    low_close = (result["low"] - result["close"].shift()).abs()
+    true_range = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
+    result["atr_14"] = true_range.ewm(
+        alpha=1 / 14, min_periods=14, adjust=False
+    ).mean()
+    result["volume_sma_20"] = result["volume"].rolling(window=20).mean()
 
-    # 4. Average True Range (ATR de 14 periodos) para volatilidad y Stop-Loss
-    high_low = df['high'] - df['low']
-    high_close = np.abs(df['high'] - df['close'].shift())
-    low_close = np.abs(df['low'] - df['close'].shift())
-    true_range = pd.concat([high_low, high_close, low_close], axis=1).max(
-        axis=1
-    )
-    df['atr_14'] = true_range.rolling(window=14).mean()
-
-    return df
+    # Alias temporales para codigo o historiales de la version anterior.
+    result["MACD_12_26_9"] = result["macd"]
+    result["MACDs_12_26_9"] = result["macd_signal"]
+    result["MACDh_12_26_9"] = result["macd_hist"]
+    return result
